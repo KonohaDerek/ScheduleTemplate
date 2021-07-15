@@ -1,0 +1,320 @@
+---
+kind: pipeline
+type: docker
+name: Development
+
+platform:
+  os: linux
+  arch: amd64
+
+clone:
+  disable: true
+
+environment:
+  Artifact_Path: /drone/src/drop
+  Project_Path: /drone/src/${DRONE_REPO_NAME}
+  Project: ScheduleTemplate
+
+steps:
+- name: Clone
+  image: docker:git
+  commands:
+  - git clone ${DRONE_GIT_HTTP_URL} ${DRONE_REPO_NAME}
+  - cd ${DRONE_REPO_NAME}
+  - git checkout $DRONE_COMMIT
+  
+
+- name: Restore
+  image: mcr.microsoft.com/dotnet/sdk
+  pull: if-not-exists
+  environment:
+    VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: 
+      from_secret: Azure_DevOps_Feed_ENDPOINTS
+  commands:
+  - curl -s -L https://raw.githubusercontent.com/Microsoft/artifacts-credprovider/master/helpers/installcredprovider.sh | bash
+  - cp -f $Project_Path/NuGet.Config /root/.nuget/NuGet/NuGet.Config
+  - dotnet restore $Project_Path/$Project.sln
+
+- name: Build
+  image:  mcr.microsoft.com/dotnet/sdk
+  pull: if-not-exists
+  environment:
+    VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: 
+      from_secret: Azure_DevOps_Feed_ENDPOINTS
+  commands:
+  - curl -s -L https://raw.githubusercontent.com/Microsoft/artifacts-credprovider/master/helpers/installcredprovider.sh | bash
+  - cp -f $Project_Path/NuGet.Config /root/.nuget/NuGet/NuGet.Config
+  - dotnet build $Project_Path/$Project/$Project.csproj
+  - dotnet build $Project_Path/$${Project}Tests/$${Project}Tests.csproj
+
+- name: Test
+  image:  mcr.microsoft.com/dotnet/sdk
+  pull: if-not-exists
+  environment:
+    VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: 
+      from_secret: Azure_DevOps_Feed_ENDPOINTS
+  commands:
+  - curl -s -L https://raw.githubusercontent.com/Microsoft/artifacts-credprovider/master/helpers/installcredprovider.sh | bash
+  - cp -f $Project_Path/NuGet.Config /root/.nuget/NuGet/NuGet.Config
+  - dotnet test $Project_Path/$${Project}Tests/$${Project}Tests.csproj
+ 
+- name: Publish
+  image:  mcr.microsoft.com/dotnet/sdk
+  pull: if-not-exists
+  environment:
+    VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: 
+      from_secret: Azure_DevOps_Feed_ENDPOINTS
+  commands:
+  - curl -s -L https://raw.githubusercontent.com/Microsoft/artifacts-credprovider/master/helpers/installcredprovider.sh | bash
+  - cp -f $Project_Path/NuGet.Config /root/.nuget/NuGet/NuGet.Config
+  - dotnet publish $Project_Path/$Project/$Project.csproj --configuration Debug -r linux-x64 --output $Artifact_Path/${DRONE_REPO_NAME}
+  - cp $Project_Path/$Project/*.Dockerfile $Artifact_Path/${DRONE_REPO_NAME}/
+  - ls $Artifact_Path/${DRONE_REPO_NAME}
+
+- name: Tag
+  image: golang
+  commands:
+  - Tag=$(date +"%Y%m%d").${DRONE_BUILD_NUMBER}-alpine,$(date +"%Y%m%d").${DRONE_BUILD_NUMBER}-drone,$(date +"%Y%m%d").${DRONE_BUILD_NUMBER}-linux-x64
+  - echo -n "$Tag,$(basename ${DRONE_COMMIT_BRANCH}),dev" > .tags
+
+- name: ImageBuild
+  image: plugins/gcr
+  settings:
+    context: /drone/src/drop/${DRONE_REPO_NAME}/
+    dockerfile: /drone/src/drop/${DRONE_REPO_NAME}/Artifacts.Dockerfile
+    build_args_from_env:
+        - ENVIRONMENT=Development
+    json_key:
+      from_secret: DRONE_GOOGLE_SERVICE_ACOUNT
+    registry: gcr.io
+    repo: gcr.io/skymirror-cirple-community/skymirror/schedule
+
+trigger:
+  event:
+  - push
+  branch:
+  - develop
+  - feature/*
+---
+kind: pipeline
+type: docker
+name: Staging
+
+platform:
+  os: linux
+  arch: amd64
+
+environment:
+  Artifact_Path: /drone/src/drop
+  Project_Path: /drone/src/${DRONE_REPO_NAME}
+  Project: Skymirror.Cirple.Schedule
+
+
+clone:
+  disable: true
+
+steps:
+- name: Clone
+  image: docker:git
+  commands:
+  - git clone ${DRONE_GIT_HTTP_URL} ${DRONE_REPO_NAME}
+  - cd ${DRONE_REPO_NAME}
+  - git checkout $DRONE_COMMIT
+  
+- name: Restore
+  image: mcr.microsoft.com/dotnet/sdk
+  pull: if-not-exists
+  environment:
+    VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: 
+      from_secret: Azure_DevOps_Feed_ENDPOINTS
+  commands:
+  - curl -s -L https://raw.githubusercontent.com/Microsoft/artifacts-credprovider/master/helpers/installcredprovider.sh | bash
+  - cp -f $Project_Path/NuGet.Config /root/.nuget/NuGet/NuGet.Config
+  - dotnet restore $Project_Path/$Project.sln
+
+- name: Publish
+  image:  mcr.microsoft.com/dotnet/sdk
+  pull: if-not-exists
+  environment:
+    VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: 
+      from_secret: Azure_DevOps_Feed_ENDPOINTS
+  commands:
+  - curl -s -L https://raw.githubusercontent.com/Microsoft/artifacts-credprovider/master/helpers/installcredprovider.sh | bash
+  - cp -f $Project_Path/NuGet.Config /root/.nuget/NuGet/NuGet.Config
+  - dotnet publish $Project_Path/$Project/$Project.csproj -c Release -r linux-x64 --output $Artifact_Path/${DRONE_REPO_NAME}
+  - cp $Project_Path/$Project/*.Dockerfile $Artifact_Path/${DRONE_REPO_NAME}/
+  - ls $Artifact_Path/${DRONE_REPO_NAME}
+
+- name: Tag
+  image: golang
+  commands:
+  - Tag=$(date +"%Y%m%d").${DRONE_BUILD_NUMBER}-alpine,$(date +"%Y%m%d").${DRONE_BUILD_NUMBER}-drone,$(date +"%Y%m%d").${DRONE_BUILD_NUMBER}-linux-x64
+  - echo -n "$Tag,$(basename ${DRONE_COMMIT_BRANCH}),staging" > .tags
+
+- name: ImageBuild
+  image: plugins/gcr
+  settings:
+    context: /drone/src/drop/${DRONE_REPO_NAME}/
+    dockerfile: /drone/src/drop/${DRONE_REPO_NAME}/Artifacts.Dockerfile
+    build_args_from_env:
+        - ENVIRONMENT=Production
+    json_key:
+      from_secret: DRONE_GOOGLE_SERVICE_ACOUNT
+    registry: gcr.io
+    repo: gcr.io/skymirror-cirple-community/skymirror/schedule
+  
+trigger:
+  event:
+  - push
+  branch:
+  - master
+
+---
+kind: pipeline
+type: docker
+name: Production
+
+platform:
+  os: linux
+  arch: amd64
+
+environment:
+  Artifact_Path: /drone/src/drop
+  Project_Path: /drone/src/${DRONE_REPO_NAME}
+  Project: Skymirror.Cirple.Schedule
+
+
+clone:
+  disable: true
+
+steps:
+- name: Clone
+  image: docker:git
+  commands:
+  - git clone ${DRONE_GIT_HTTP_URL} ${DRONE_REPO_NAME}
+  - cd ${DRONE_REPO_NAME}
+  - git checkout $DRONE_COMMIT
+  - cd ..
+  - git clone --depth 1 -b ${DRONE_COMMIT_BRANCH} --single-branch https://git.skymirror.com.tw/Cirple/Skymirror.Cirple.Database.git 2>/dev/null || (git clone --depth 1 -b develop --single-branch https://git.skymirror.com.tw/Cirple/Skymirror.Cirple.Database.git)
+  - git clone --depth 1 -b ${DRONE_COMMIT_BRANCH} --single-branch https://git.skymirror.com.tw/Cirple/Skymirror.Cirple.Common.git 2>/dev/null || (git clone --depth 1 -b develop --single-branch https://git.skymirror.com.tw/Cirple/Skymirror.Cirple.Common.git)
+  - git clone --depth 1 -b ${DRONE_COMMIT_BRANCH} --single-branch https://git.skymirror.com.tw/Cirple/Skymirror.Cirple.I18n.git 2>/dev/null || (git clone --depth 1 -b develop --single-branch https://git.skymirror.com.tw/Cirple/Skymirror.Cirple.I18n.git)
+
+- name: Restore
+  image: mcr.microsoft.com/dotnet/sdk
+  pull: if-not-exists
+  environment:
+    VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: 
+      from_secret: Azure_DevOps_Feed_ENDPOINTS
+  commands:
+  - curl -s -L https://raw.githubusercontent.com/Microsoft/artifacts-credprovider/master/helpers/installcredprovider.sh | bash
+  - cp -f $Project_Path/NuGet.Config /root/.nuget/NuGet/NuGet.Config
+  - dotnet restore $Project_Path/$Project.sln
+
+- name: Publish
+  image:  mcr.microsoft.com/dotnet/sdk
+  pull: if-not-exists
+  environment:
+    VSS_NUGET_EXTERNAL_FEED_ENDPOINTS: 
+      from_secret: Azure_DevOps_Feed_ENDPOINTS
+  commands:
+  - curl -s -L https://raw.githubusercontent.com/Microsoft/artifacts-credprovider/master/helpers/installcredprovider.sh | bash
+  - cp -f $Project_Path/NuGet.Config /root/.nuget/NuGet/NuGet.Config
+  - dotnet publish $Project_Path/$Project/$Project.csproj -c Release -r linux-x64 --output $Artifact_Path/${DRONE_REPO_NAME}
+  - cp $Project_Path/$Project/*.Dockerfile $Artifact_Path/${DRONE_REPO_NAME}/
+  - ls $Artifact_Path/${DRONE_REPO_NAME}
+
+- name: Tag
+  image: golang
+  commands:
+  - Tag=$(date +"%Y%m%d").${DRONE_BUILD_NUMBER}-alpine,$(date +"%Y%m%d").${DRONE_BUILD_NUMBER}-drone,$(date +"%Y%m%d").${DRONE_BUILD_NUMBER}-linux-x64
+  - echo -n "$Tag,latest" > .tags
+
+- name: ImageBuild
+  image: plugins/gcr
+  settings:
+    context: /drone/src/drop/${DRONE_REPO_NAME}/
+    dockerfile: /drone/src/drop/${DRONE_REPO_NAME}/Artifacts.Dockerfile
+    build_args_from_env:
+        - ENVIRONMENT=Production
+    json_key:
+      from_secret: DRONE_GOOGLE_SERVICE_ACOUNT
+    registry: gcr.io
+    repo: gcr.io/skymirror-cirple-community/skymirror/schedule
+  
+trigger:
+  event:
+  - tag
+
+---
+kind: pipeline
+type: docker
+name: Deploy
+
+platform:
+  os: linux
+  arch: amd64
+
+clone:
+  disable: true
+
+steps:
+- name: Deploy
+  image : appleboy/drone-ssh
+  settings:
+    host: 10.168.102.104
+    username: cirple
+    password:
+      from_secret: SSH_PWD
+    port: 22
+    script:
+      - sudo ./run.sh
+  when:
+    branch:
+      - develop
+      - feature/*
+
+trigger:
+  status:
+  - success
+
+depends_on:
+- Development
+- Staging
+- Production
+
+---
+kind: pipeline
+type: docker
+name: Notify
+
+platform:
+  os: linux
+  arch: amd64
+
+clone:
+  disable: true
+
+steps:
+- name: slack
+  image: plugins/slack
+  settings:
+    channel: tasks-development
+    template: "{{#success build.status}}\n    {{build.author}} trigger {{repo.name}} build {{build.number}} by {{build.event}} to branch {{build.branch}} succeeded.\n{{else}}\n    {{repo.name}} build {{build.number}} to branch {{build.branch}} failed. Fix me please.\n{{/success}}\n"
+    username: drone
+    webhook: https://hooks.slack.com/services/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
+
+trigger:
+  status:
+  - success
+  - failure
+  branch:
+  - develop
+  - feature/*
+  - master
+
+depends_on:
+- Development
+- Staging
+- Production
+
+...
