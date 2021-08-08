@@ -21,10 +21,10 @@ namespace ScheduleTemplate
 
         public static IConfiguration Configuration { get; set; }
 
-        public Startup(IConfiguration configuration, ILoggerFactory logFactory)
+        public Startup(IConfiguration configuration)
         {
             Configuration = configuration;
-            ApplicationLogging.LoggerFactory = logFactory;
+           // ApplicationLogging.LoggerFactory = logFactory;
         }
 
         // This method gets called by the runtime. Use this method to add services to the container.
@@ -51,7 +51,7 @@ namespace ScheduleTemplate
                 app.UseDeveloperExceptionPage();
             }
 
-            //加入排程工作
+            //嚙稼嚙皚嚙複程嚙線嚙瑾
             app.UseJobService();
 
             app.UseHangfireServer();
@@ -67,7 +67,7 @@ namespace ScheduleTemplate
 
             app.UseRouting();
 
-            // 啟用Hangfire的Dashboard
+            // 嚙課伐蕭Hangfire嚙踝蕭Dashboard
             app.UseHangfireDashboard("/hangfire", new DashboardOptions
             {
                 Authorization = new[] { new AllowAllAuthorizationFilter() }

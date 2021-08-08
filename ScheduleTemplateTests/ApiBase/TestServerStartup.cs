@@ -14,7 +14,7 @@ namespace ScheduleTemplateTests.ApiBase
 {
     class TestServerStartup : Startup
     {
-        public TestServerStartup(IConfiguration configuration, ILoggerFactory logFactory) : base(configuration, logFactory)
+        public TestServerStartup(IConfiguration configuration ) : base(configuration)
         {
         }
 
